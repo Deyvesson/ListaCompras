@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Lista Compras</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              brand: {
+                50: '#effef4',
+                100: '#d9fce3',
+                200: '#b5f8cb',
+                300: '#7feeac',
+                400: '#43e288',
+                500: '#1bca6b',
+                600: '#0fa654',
+                700: '#108345',
+                800: '#12673a',
+                900: '#105532',
+              }
+            }
+          }
+        }
+      }
+    </script>
+    
+    <style>
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      .animate-fade-in { animation: fadeIn 0.2s ease-out; }
+      .animate-fade-in-up { animation: fadeInUp 0.3s ease-out; }
+      @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes fadeInUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+
+    <!-- Import Maps for Modules via CDN -->
+    <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.3.1",
+        "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+        "@google/genai": "https://esm.sh/@google/genai@1.34.0",
+        "lucide-react": "https://esm.sh/lucide-react@0.378.0",
+        "recharts": "https://esm.sh/recharts@2.12.7"
+      }
+    }
+    </script>
+
+    <!-- Babel Standalone for compiling JSX/TS in browser -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Process Env Polyfill -->
+    <script>
+      window.process = {
+        env: {
+          // ⚠️ SUBSTITUA PELA SUA CHAVE API DO GEMINI AQUI PARA TESTAR ⚠️
+          API_KEY: 'AIzaSyDeBt55GXe8O2vCtD7duIy4D49_929K_Ic' 
+        }
+      };
+    </script>
+  <link rel="stylesheet" href="/index.css">
+</head>
+  <body class="bg-gray-50 text-gray-900 antialiased overscroll-none">
+    <div id="root"></div>
+
+    <!-- Main Application Logic -->
+    <script type="text/babel" data-type="module">
+      import React, { useState, useEffect, useCallback, useMemo } from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { 
+        ShoppingBag, Plus, Sparkles, Trash2, BarChart2, Search, 
+        ChevronDown, ChevronUp, Minus, Check, X 
+      } from 'lucide-react';
+      import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
+      
+      // Importando a lógica separada do arquivo JS
+      import { categorizeGroceryItems } from './gemini.js';
+
+      // --- TYPES ---
+      const SortMode = {
+        MANUAL: 'MANUAL',
+        CATEGORY: 'CATEGORY',
+        CHECKED: 'CHECKED'
+      };
+
+      // --- COMPONENT: ListItem ---
+      const ListItem = React.memo(({ item, onUpdate, onDelete }) => {
+        const handleToggleCheck = () => {
+          onUpdate(item.id, { isChecked: !item.isChecked });
+        };
+
+        const handleIncrement = () => onUpdate(item.id, { quantity: item.quantity + 1 });
+        const handleDecrement = () => {
+          if (item.quantity > 1) {
+            onUpdate(item.id, { quantity: item.quantity - 1 });
+          }
+        };
+
+        const handlePriceChange = (e) => {
+          const val = parseFloat(e.target.value);
+          onUpdate(item.id, { price: isNaN(val) ? 0 : val });
+        };
+
+        const totalItemPrice = item.price * item.quantity;
+
+        return (
+          <div className={`
+            flex flex-col p-4 mb-3 bg-white rounded-xl shadow-sm border border-gray-100 transition-all duration-200
+            ${item.isChecked ? 'opacity-75 bg-green-50/50 border-green-100' : ''}
+          `}>
+            <div className="flex items-center gap-3 mb-3">
+              <button
+                onClick={handleToggleCheck}
+                className={`
+                  flex-shrink-0 w-8 h-8 rounded-full border-2 flex items-center justify-center transition-colors
+                  ${item.isChecked 
+                    ? 'bg-brand-500 border-brand-500 text-white' 
+                    : 'border-gray-300 text-transparent hover:border-brand-400'}
+                `}
+              >
+                <Check size={18} strokeWidth={3} />
+              </button>
+
+              <span className={`flex-grow text-lg font-medium ${item.isChecked ? 'line-through text-gray-500' : 'text-gray-800'}`}>
+                {item.name}
+              </span>
+
+              <button 
+                onClick={() => onDelete(item.id)}
+                className="p-2 text-gray-400 hover:text-red-500 transition-colors rounded-full active:bg-red-50"
+              >
+                <Trash2 size={20} />
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between gap-4 pl-11">
+              <div className="flex items-center bg-gray-50 rounded-lg p-1 border border-gray-200">
+                <button onClick={handleDecrement} className="p-1.5 text-gray-500 hover:text-brand-600 active:bg-gray-200 rounded-md">
+                  <Minus size={16} />
+                </button>
+                <span className="w-8 text-center font-semibold text-gray-700 text-sm">{item.quantity}</span>
+                <button onClick={handleIncrement} className="p-1.5 text-gray-500 hover:text-brand-600 active:bg-gray-200 rounded-md">
+                  <Plus size={16} />
+                </button>
+              </div>
+
+              <div className="flex items-center flex-grow justify-end gap-2">
+                 <span className="text-xs text-gray-400 font-medium">R$ unit.</span>
+                 <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={item.price || ''}
+                  onChange={handlePriceChange}
+                  className="w-24 px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-right font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder-gray-300"
+                />
+              </div>
+            </div>
+            
+            {totalItemPrice > 0 && (
+               <div className="flex justify-end mt-2 pt-2 border-t border-gray-50">
+                  <span className="text-xs text-gray-400 mr-2">Subtotal:</span>
+                  <span className="text-sm font-bold text-brand-700">
+                    R$ {totalItemPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+               </div>
+            )}
+          </div>
+        );
+      });
+
+      // --- COMPONENT: StatsModal ---
+      const COLORS = ['#0fa654', '#86efac', '#fca5a5', '#94a3b8'];
+      
+      const StatsModal = ({ items, onClose }) => {
+        const checkedItems = items.filter(i => i.isChecked);
+        
+        const data = React.useMemo(() => {
+          const categoryMap = {};
+          checkedItems.forEach(item => {
+            const cat = item.category || 'Outros';
+            const cost = item.price * item.quantity;
+            categoryMap[cat] = (categoryMap[cat] || 0) + cost;
+          });
+
+          return Object.entries(categoryMap)
+            .map(([name, value]) => ({ name, value }))
+            .sort((a, b) => b.value - a.value);
+        }, [checkedItems]);
+
+        const totalSpent = checkedItems.reduce((acc, i) => acc + (i.price * i.quantity), 0);
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+            <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
+              <div className="flex items-center justify-between p-4 border-b">
+                <h2 className="text-xl font-bold text-gray-800">Relatório de Gastos</h2>
+                <button onClick={onClose} className="p-2 text-gray-500 hover:bg-gray-100 rounded-full">
+                  <X size={24} />
+                </button>
+              </div>
+
+              <div className="p-6 flex-grow overflow-y-auto">
+                <div className="text-center mb-6">
+                   <p className="text-sm text-gray-500 uppercase tracking-wide">Total no Carrinho</p>
+                   <p className="text-4xl font-black text-brand-600 mt-1">
+                     R$ {totalSpent.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                   </p>
+                </div>
+
+                {data.length > 0 ? (
+                  <div className="h-64 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={data}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={60}
+                          outerRadius={80}
+                          fill="#8884d8"
+                          paddingAngle={5}
+                          dataKey="value"
+                        >
+                          {data.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip 
+                          formatter={(value) => `R$ ${value.toFixed(2)}`}
+                          contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                        />
+                        <Legend verticalAlign="bottom" height={36}/>
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                ) : (
+                  <div className="text-center py-10 text-gray-400">
+                    <p>Marque itens como pegos e insira os preços para ver o gráfico.</p>
+                  </div>
+                )}
+                
+                {data.length > 0 && (
+                   <div className="mt-4 space-y-2">
+                      <h3 className="font-semibold text-gray-700">Detalhes por Categoria</h3>
+                      {data.map((d, i) => (
+                         <div key={d.name} className="flex justify-between items-center text-sm p-2 bg-gray-50 rounded">
+                            <div className="flex items-center gap-2">
+                              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length]}}></div>
+                              <span>{d.name}</span>
+                            </div>
+                            <span className="font-bold">R$ {d.value.toFixed(2)}</span>
+                         </div>
+                      ))}
+                   </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      // --- MAIN APP ---
+      const STORAGE_KEY = 'lista-facil-items';
+
+      function App() {
+        const [items, setItems] = useState(() => {
+          const saved = localStorage.getItem(STORAGE_KEY);
+          return saved ? JSON.parse(saved) : [];
+        });
+        
+        const [newItemName, setNewItemName] = useState('');
+        const [showStats, setShowStats] = useState(false);
+        const [isAiLoading, setIsAiLoading] = useState(false);
+        const [sortMode, setSortMode] = useState(SortMode.CATEGORY);
+        const [expandedCategories, setExpandedCategories] = useState({});
+
+        useEffect(() => {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+        }, [items]);
+
+        // Função modificada para auto-categorização
+        const addItem = async (e) => {
+          e?.preventDefault();
+          if (!newItemName.trim()) return;
+
+          const nameToProcess = newItemName.trim();
+          const tempId = crypto.randomUUID();
+
+          // 1. Adiciona o item imediatamente na interface (Optimistic UI)
+          const newItem = {
+            id: tempId,
+            name: nameToProcess,
+            quantity: 1,
+            price: 0,
+            isChecked: false,
+            category: 'Outros' // Categoria inicial padrão
+          };
+
+          setItems(prev => [newItem, ...prev]);
+          setNewItemName('');
+
+          // 2. Chama a IA em "background" para categorizar apenas este item
+          try {
+            const categoryMap = await categorizeGroceryItems([nameToProcess]);
+            const detectedCategory = categoryMap[nameToProcess];
+
+            if (detectedCategory) {
+              // 3. Atualiza o item com a categoria correta quando a IA responder
+              setItems(prevItems => 
+                prevItems.map(item => 
+                  item.id === tempId ? { ...item, category: detectedCategory } : item
+                )
+              );
+
+              // Se estivermos no modo de visualização por categoria, garante que a nova categoria esteja expandida
+              setExpandedCategories(prev => ({
+                ...prev,
+                [detectedCategory]: true
+              }));
+              
+              // Opcional: Se quiser forçar a ordenação por categoria automaticamente ao adicionar
+              // setSortMode(SortMode.CATEGORY);
+            }
+          } catch (error) {
+            console.error("Erro na auto-categorização:", error);
+            // Falha silenciosa: o item permanece como 'Outros'
+          }
+        };
+
+        const updateItem = useCallback((id, updates) => {
+          setItems(prev => prev.map(item => item.id === id ? { ...item, ...updates } : item));
+        }, []);
+
+        const deleteItem = useCallback((id) => {
+          setItems(prev => prev.filter(item => item.id !== id));
+        }, []);
+
+        const clearList = () => {
+          if (confirm('Tem certeza que deseja limpar toda a lista?')) {
+            setItems([]);
+          }
+        };
+
+        // Mantém a função manual caso o usuário queira re-organizar tudo ou corrigir falhas
+        const categorizeWithAI = async () => {
+          setIsAiLoading(true);
+          const uncategorizedItems = items.map(i => i.name);
+          
+          const categoryMap = await categorizeGroceryItems(uncategorizedItems);
+          
+          // Verificação simples se o retorno foi vazio (erro ou sem dados)
+          if (Object.keys(categoryMap).length === 0 && uncategorizedItems.length > 0) {
+             alert("Não foi possível conectar com a IA no momento. Tente novamente mais tarde.");
+             setIsAiLoading(false);
+             return;
+          }
+
+          setItems(prev => prev.map(item => ({
+            ...item,
+            category: categoryMap[item.name] || item.category || 'Outros'
+          })));
+          
+          setSortMode(SortMode.CATEGORY);
+          setIsAiLoading(false);
+          
+          const allCategories = new Set(Object.values(categoryMap));
+          const nextExpanded = { 'Outros': true };
+          allCategories.forEach(c => nextExpanded[c] = true);
+          setExpandedCategories(nextExpanded);
+        };
+
+        const toggleCategory = (cat) => {
+          setExpandedCategories(prev => ({ ...prev, [cat]: !prev[cat] }));
+        };
+
+        const totalEstimated = items.reduce((acc, i) => acc + (i.price * i.quantity), 0);
+        const totalChecked = items.filter(i => i.isChecked).reduce((acc, i) => acc + (i.price * i.quantity), 0);
+        const itemCount = items.length;
+        const checkedCount = items.filter(i => i.isChecked).length;
+
+        const renderList = () => {
+          if (items.length === 0) {
+            return (
+              <div className="flex flex-col items-center justify-center py-20 px-4 text-center opacity-60">
+                <ShoppingBag size={64} className="text-gray-300 mb-4" />
+                <p className="text-gray-500 text-lg font-medium">Sua lista está vazia.</p>
+                <p className="text-sm text-gray-400">Adicione itens para começar suas compras.</p>
+              </div>
+            );
+          }
+
+          if (sortMode === SortMode.CATEGORY) {
+            const grouped = items.reduce((acc, item) => {
+              const cat = item.category || 'Outros';
+              if (!acc[cat]) acc[cat] = [];
+              acc[cat].push(item);
+              return acc;
+            }, {});
+
+            return Object.entries(grouped).sort().map(([category, catItems]) => {
+               const isExpanded = expandedCategories[category] ?? true;
+               const catTotal = catItems.reduce((acc, i) => acc + (i.price * i.quantity), 0);
+               
+               // ORDENAÇÃO: Itens não marcados primeiro
+               const sortedCatItems = [...catItems].sort((a, b) => {
+                  if (a.isChecked === b.isChecked) return 0;
+                  return a.isChecked ? 1 : -1;
+               });
+
+               return (
+                 <div key={category} className="mb-6 animate-fade-in-up">
+                    <button 
+                      onClick={() => toggleCategory(category)}
+                      className="flex items-center justify-between w-full px-2 py-2 mb-2 hover:bg-gray-100 rounded-lg transition-colors"
+                    >
+                       <div className="flex items-center gap-2">
+                          {isExpanded ? <ChevronUp size={16} className="text-gray-400"/> : <ChevronDown size={16} className="text-gray-400"/>}
+                          <h3 className="font-bold text-gray-700 text-lg capitalize">{category}</h3>
+                          <span className="bg-gray-200 text-gray-600 text-xs px-2 py-0.5 rounded-full">{catItems.length}</span>
+                       </div>
+                       {catTotal > 0 && <span className="text-sm font-semibold text-brand-600">R$ {catTotal.toFixed(2)}</span>}
+                    </button>
+                    
+                    {isExpanded && (
+                      <div className="space-y-3">
+                        {sortedCatItems.map(item => (
+                          <ListItem key={item.id} item={item} onUpdate={updateItem} onDelete={deleteItem} />
+                        ))}
+                      </div>
+                    )}
+                 </div>
+               );
+            });
+          }
+
+          return (
+            <div className="space-y-3 pb-24">
+              {items.map(item => (
+                <ListItem key={item.id} item={item} onUpdate={updateItem} onDelete={deleteItem} />
+              ))}
+            </div>
+          );
+        };
+
+        return (
+          <div className="min-h-screen pb-40 bg-gray-50 max-w-lg mx-auto shadow-2xl relative">
+            
+            <header className="bg-white sticky top-0 z-20 px-4 py-4 shadow-sm border-b border-gray-100">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 bg-brand-500 rounded-lg flex items-center justify-center text-white">
+                    <ShoppingBag size={18} strokeWidth={3} />
+                  </div>
+                  <h1 className="text-xl font-bold text-gray-900 tracking-tight">Lista Compras</h1>
+                </div>
+                <div className="flex items-center gap-1">
+                   <button 
+                     onClick={() => setShowStats(true)} 
+                     className="p-2 text-gray-500 hover:bg-gray-100 rounded-full transition-colors relative"
+                   >
+                     <BarChart2 size={22} />
+                     {items.length > 0 && (
+                       <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
+                     )}
+                   </button>
+                   {items.length > 0 && (
+                     <button 
+                      onClick={clearList}
+                      className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
+                     >
+                       <Trash2 size={22} />
+                     </button>
+                   )}
+                </div>
+              </div>
+
+              <form onSubmit={addItem} className="relative shadow-sm rounded-xl">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Plus size={20} className="text-gray-400" />
+                </div>
+                <input
+                  type="text"
+                  className="block w-full pl-10 pr-12 py-3.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:bg-white transition-all text-base"
+                  placeholder="Adicionar item (ex: Leite, Pão...)"
+                  value={newItemName}
+                  onChange={(e) => setNewItemName(e.target.value)}
+                  enterKeyHint="enter"
+                />
+                <button 
+                  type="submit" 
+                  disabled={!newItemName.trim()}
+                  className="absolute right-2 top-2 bottom-2 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 disabled:hover:bg-brand-500 text-white px-4 rounded-lg font-medium transition-colors text-sm"
+                >
+                  Add
+                </button>
+              </form>
+
+              {items.length > 0 && (
+                <div className="flex items-center justify-between mt-3 px-1">
+                   <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                     {checkedCount}/{itemCount} itens pegos
+                   </span>
+                   
+                   <div className="flex gap-2">
+                     {/* Botão para mudar visualização */}
+                     <button
+                        onClick={() => setSortMode(prev => prev === SortMode.CATEGORY ? SortMode.MANUAL : SortMode.CATEGORY)}
+                        className="text-xs font-medium text-brand-600 hover:text-brand-700 underline underline-offset-2"
+                     >
+                        {sortMode === SortMode.CATEGORY ? 'Ver Lista Simples' : 'Ver por Categorias'}
+                     </button>
+
+                     {/* Botão de Organização Manual (Fallback) */}
+                     <button 
+                      onClick={categorizeWithAI}
+                      disabled={isAiLoading}
+                      className="flex items-center gap-1.5 text-xs font-semibold text-brand-600 bg-brand-50 px-3 py-1.5 rounded-full hover:bg-brand-100 transition-colors disabled:opacity-50"
+                     >
+                       {isAiLoading ? (
+                          <span className="w-3 h-3 border-2 border-brand-600 border-t-transparent rounded-full animate-spin"></span>
+                       ) : (
+                          <Sparkles size={14} />
+                       )}
+                       {isAiLoading ? 'Organizando...' : 'Re-Organizar'}
+                     </button>
+                   </div>
+                </div>
+              )}
+            </header>
+
+            <main className="px-4 py-4 min-h-[50vh]">
+              {renderList()}
+            </main>
+
+            {showStats && <StatsModal items={items} onClose={() => setShowStats(false)} />}
+
+            <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 pb-8 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-10 max-w-lg mx-auto">
+              <div className="flex justify-between items-end">
+                <div className="flex flex-col">
+                  <span className="text-sm text-gray-500 font-medium mb-1">Total Carrinho</span>
+                  <span className="text-3xl font-black text-brand-700 leading-none">
+                    R$ {totalChecked.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="block text-xs text-gray-400 mb-1">Previsão Total</span>
+                  <span className="text-lg font-bold text-gray-600">
+                     R$ {totalEstimated.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        );
+      }
+
+      const root = createRoot(document.getElementById('root'));
+      root.render(<App />);
+    </script>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>
