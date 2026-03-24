@@ -1,22 +1,17 @@
-// Lógica de serviço da API Gemini
+// Lógica de serviço para chamada da Azure Function (proxy de IA)
 // Este arquivo é JavaScript puro (ES Module) e pode ser importado pelo navegador
 
 export const categorizeGroceryItems = async (itemNames) => {
-  // Acessa a variável global definida no index.html
-  const apiKey = window.process?.env?.API_KEY;
-  
-  if (!apiKey || apiKey === 'YOUR_API_KEY_HERE') {
-    console.warn("API Key is missing or default. Skipping AI categorization.");
-    // Removido o alert para não interromper o fluxo de digitação rápida
+  const functionUrl = window.appConfig?.aiFunctionUrl;
+
+  if (!functionUrl || functionUrl.includes('YOUR_FUNCTION_APP')) {
+    console.warn("AI function URL is missing or default. Skipping AI categorization.");
     return {};
   }
 
   if (itemNames.length === 0) return {};
 
   try {
-    // Utilizando o modelo solicitado: gemma-3-27b-it
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemma-3-27b-it:generateContent?key=${apiKey}`;
-    
     const systemInstruction = `
       Categorize the following grocery items into standard categories (e.g., Hortifruti, Laticínios, Carnes, Limpeza, Padaria, Bebidas, Mercearia, Higiene, Outros).
       
@@ -26,22 +21,14 @@ export const categorizeGroceryItems = async (itemNames) => {
     
     const userPrompt = `Items: ${itemNames.join(', ')}`;
 
-    const response = await fetch(url, {
+    const response = await fetch(functionUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        contents: [
-          {
-            role: "model",
-            parts: [{ text: systemInstruction }]
-          },
-          {
-            role: "user",
-            parts: [{ text: userPrompt }]
-          }
-        ]
+        systemInstruction,
+        userPrompt
       })
     });
 
@@ -50,7 +37,7 @@ export const categorizeGroceryItems = async (itemNames) => {
     }
 
     const data = await response.json();
-    const resultText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const resultText = data.resultText;
 
     if (!resultText) return {};
     
