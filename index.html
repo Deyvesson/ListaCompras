@@ -126,7 +126,7 @@
                 <Check size={18} strokeWidth={3} />
               </button>
 
-              <span className={`flex-grow text-lg font-medium ${item.isChecked ? 'line-through text-gray-500' : 'text-gray-800'}`}>
+              <span className={`flex-grow text-base font-medium ${item.isChecked ? 'line-through text-gray-500' : 'text-gray-800'}`}>
                 {item.name}
               </span>
 
@@ -405,8 +405,10 @@
             }, {});
 
             return Object.entries(grouped).sort().map(([category, catItems]) => {
-               const isExpanded = expandedCategories[category] ?? true;
+               const isExpanded = expandedCategories[category] ?? false;
                const catTotal = catItems.reduce((acc, i) => acc + (i.price * i.quantity), 0);
+              const catCheckedCount = catItems.filter(i => i.isChecked).length;
+              const isCategoryComplete = catItems.length > 0 && catCheckedCount === catItems.length;
                
                // ORDENAÇÃO: Itens não marcados primeiro
                const sortedCatItems = [...catItems].sort((a, b) => {
@@ -418,12 +420,19 @@
                  <div key={category} className="mb-6 animate-fade-in-up">
                     <button 
                       onClick={() => toggleCategory(category)}
-                      className="flex items-center justify-between w-full px-2 py-2 mb-2 hover:bg-gray-100 rounded-lg transition-colors"
+                      className={`flex items-center justify-between w-full px-2 py-2 mb-2 rounded-lg transition-colors ${isCategoryComplete ? 'bg-green-50 hover:bg-green-100' : 'hover:bg-gray-100'}`}
                     >
                        <div className="flex items-center gap-2">
                           {isExpanded ? <ChevronUp size={16} className="text-gray-400"/> : <ChevronDown size={16} className="text-gray-400"/>}
-                          <h3 className="font-bold text-gray-700 text-lg capitalize">{category}</h3>
-                          <span className="bg-gray-200 text-gray-600 text-xs px-2 py-0.5 rounded-full">{catItems.length}</span>
+                          <h3 className={`font-bold text-lg capitalize ${isCategoryComplete ? 'text-green-700' : 'text-gray-700'}`}>{category}</h3>
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${isCategoryComplete ? 'bg-green-200 text-green-800' : 'bg-gray-200 text-gray-600'}`}>
+                            {catCheckedCount}/{catItems.length}
+                          </span>
+                          {isCategoryComplete && (
+                            <span className="text-xs font-semibold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">
+                              Completa
+                            </span>
+                          )}
                        </div>
                        {catTotal > 0 && <span className="text-sm font-semibold text-brand-600">R$ {catTotal.toFixed(2)}</span>}
                     </button>
